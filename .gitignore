@@ -394,3 +394,5 @@ tags
 .history
 
 # End of https://www.toptal.com/developers/gitignore/api/python,django,visualstudiocode,linux,macos,pycharm,vim
+sale_views_backup.py
+user_views_backup.py
