@@ -27,4 +27,4 @@ class SearchProductForSellView(View):
 
 class ProductDetailForBuyAndSellView(View):
     def post(self, request):
-        return JsonResponse({'message':'Product Detail For Buy And Sell View POST', status = 200)
+        return JsonResponse({'message':'Product Detail For Buy And Sell View POST'}, status = 200)

@@ -4,7 +4,7 @@ import local_settings
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-DEBUG = False
+DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
@@ -85,6 +85,37 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 
+LOGGING = {
+    'disable_existing_loggers': False,
+    'version': 1,
+    'formatters': {
+         'verbose': {
+            'format': '{asctime} {levelname} {message}',
+            'style': '{'
+        },
+    },
+    'handlers': {
+        'console': {
+            'class'     : 'logging.StreamHandler',
+            'formatter' : 'verbose',
+            'level'     : 'DEBUG',
+        },
+        'file': {
+            'level'     : 'DEBUG',
+            'class'     : 'logging.FileHandler',
+            'formatter' : 'verbose',
+            'filename'  : 'debug.log',
+        },
+    },
+    'loggers': {
+        'django.db.backends': {
+            'handlers' : ['console','file'],
+            'level'    : 'DEBUG',
+            'propagate': False,
+        },
+    },
+}
+
 APPEND_SLASH = False
 
 CORS_ORIGIN_ALLOW_ALL = True
@@ -114,7 +145,7 @@ CORS_ALLOW_HEADERS = (
 CACHES = {
     "default" : {
         "BACKEND" : "django_redis.cache.RedisCache",
-        "LOCATION" : "redis://redis:6379/1",
+        "LOCATION" : "redis://52.78.152.195:6379/1",
         "OPTION" : {
             "CLIENT_CLASS" : "django_redis.client.DefaultClient",
         }
