@@ -50,7 +50,12 @@ class ProductListView(View):
             for image in all_images:
                 temp_product_list[image.product_id - 1]['image'] = image.url
 
-            all_orders = Order.objects.all().select_related('ask', 'bid', 'ask__product_size', 'bid__product_size').order_by('-date')
+            all_orders = Order.objects.all().select_related('ask',
+                                                            'bid',
+                                                            'ask__product_size',
+                                                            'bid__product_size'
+                                                           ).order_by('-date')
+
             for order in all_orders:
                 temp_product_list[order.ask.product_size.product_id - 1]['lowest_ask'].append(order.ask.price)
                 temp_product_list[order.bid.product_size.product_id - 1]['highest_bid'].append(order.bid.price)
@@ -66,7 +71,7 @@ class ProductListView(View):
                 product['most_popular']      = product['sale_count']
                 product['last_sales']        = last_sale
 
-            cache.set('all_product_list', temp_product_list)
+            cache.set('all_product_list', temp_product_list, (60 * 60) * 6)
             all_product_list = temp_product_list
 
         if sort == 'most_popular':
@@ -108,7 +113,24 @@ class ProductListView(View):
 
 class ProductDetailView(View):
     def get(self, request, product_id):
-        product       = Product.objects.get(id = product_id)
+        product = Product.objects.select_related(
+                                                    'category',
+                                                    'category__sub_catogory',
+                                                    'category__sub_category__main_category'
+                                                ).get(id = product_id)
+
+        all_product_count      = Product.objects.count()
+        related_range          = list(range(product.id + 1, product.id + 16)) if all_product_count // 2 > product.id else list(range(product.id - 1, product.id - 16, -1))
+        related_product        = Product.objects.filter(id__in = related_range).order_by('id')
+        related_product_images = Image.objects.filter(product__in = related_range, image_type = 1).order_by('product')
+
+        related_product_list = [{
+            'product_id'    : each_product.id,
+            'name'          : each_product.name,
+            'thumnail'      : related_product_image.url,
+            'average_price' : '$' + str(int(each_product.average_price)) if each_product.average_price else '$0'
+        } for each_product, each_product_image in zip(related_product, related_product_images)]
+
         detail_data_set = {
             'product_id'    : product.id,
             'name'          : product.name,
@@ -124,22 +146,9 @@ class ProductDetailView(View):
             'average_price' : '$' + str(product.average_price) if product.average_price else '$0',
             'price_premium' : str(product.price_premium / 10) + '%' if product.price_premium else '0%',
             'detail_images' : Image.objects.filter(product = product_id, image_type = 2)[0].url,
-            'volatility'    : str(product.volatility * 100) + '%' if product.volatility else '0.0%'
+            'volatility'    : str(product.volatility * 100) + '%' if product.volatility else '0.0%',
+            'related_product_list' : related_product_list
         }
-
-        related_product_list   = []
-        all_product_count      = Product.objects.count()
-        related_range          = list(range(product.id + 1, product.id + 16)) if all_product_count // 2 > product.id else list(range(product.id - 1, product.id - 16, -1))
-        related_product        = Product.objects.filter(id__in = related_range).order_by('id')
-        related_product_images = Image.objects.filter(product__in = related_range, image_type = 1).order_by('product')
-        for each_product in related_product:
-            related_product_list.append({
-                'product_id'    : each_product.id,
-                'name'          : each_product.name,
-                'thumnail'      : related_product_images[each_product.id - (product_id + 1)].url,
-                'average_price' : '$' + str(int(each_product.average_price)) if each_product.average_price else '$0'
-            })
-        detail_data_set['related_product_list'] = related_product_list
 
         product_size_info_list = []
         week_52_low, week_52_high = None, None
