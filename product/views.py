@@ -115,21 +115,32 @@ class ProductDetailView(View):
     def get(self, request, product_id):
         product = Product.objects.select_related(
                                                     'category',
-                                                    'category__sub_catogory',
+                                                    'category__sub_category',
                                                     'category__sub_category__main_category'
                                                 ).get(id = product_id)
 
         all_product_count      = Product.objects.count()
-        related_range          = list(range(product.id + 1, product.id + 16)) if all_product_count // 2 > product.id else list(range(product.id - 1, product.id - 16, -1))
+        related_range          = list(range(product_id + 1, product_id + 16)) if all_product_count // 2 > product_id else list(range(product_id - 1, product_id - 16, -1))
         related_product        = Product.objects.filter(id__in = related_range).order_by('id')
         related_product_images = Image.objects.filter(product__in = related_range, image_type = 1).order_by('product')
 
         related_product_list = [{
             'product_id'    : each_product.id,
             'name'          : each_product.name,
-            'thumnail'      : related_product_image.url,
+            'thumnail'      : each_product_image.url,
             'average_price' : '$' + str(int(each_product.average_price)) if each_product.average_price else '$0'
         } for each_product, each_product_image in zip(related_product, related_product_images)]
+
+        product_size_list = [each_size.id for each_size in ProductSize.objects.filter(product = product_id)]
+
+        all_product_sale = [{
+            'ask_id' : each_sale.ask.id,
+            'bid_id' : each_sale.bid.id,
+            'size'   : each_sale.ask.product_size.size.name,
+            'date'   : str(each_sale.date).split(' ')[0],
+            'time'   : str(each_sale.date).split(' ')[1],
+            'price'  : int(each_sale.ask.price)
+        } for each_sale in Order.objects.select_related('ask', 'bid', 'ask__product_size', 'ask__product_size__size').filter(ask__status = 1, ask__product_size_id__in = product_size_list)]
 
         detail_data_set = {
             'product_id'    : product.id,
@@ -147,83 +158,73 @@ class ProductDetailView(View):
             'price_premium' : str(product.price_premium / 10) + '%' if product.price_premium else '0%',
             'detail_images' : Image.objects.filter(product = product_id, image_type = 2)[0].url,
             'volatility'    : str(product.volatility * 100) + '%' if product.volatility else '0.0%',
-            'related_product_list' : related_product_list
+            'related_product_list' : related_product_list,
+            'all_sale_data_list' : all_product_sale
         }
+                                                                                                
 
-        product_size_info_list = []
-        week_52_low, week_52_high = None, None
-        product_size_list = [each.id for each in ProductSize.objects.filter(product = product_id)]
-
-        productsize_list = ProductSize.objects.filter(product = product_id)
-        for productsize in productsize_list:
-            target_orders = Order.objects.filter(ask__product_size_id = productsize.id).select_related('ask').order_by('date')
-            if len(target_orders) > 1: recent_price, before_price, recent_date = target_orders[0].ask.price, target_orders[1].ask.price, target_orders[0].date
-            elif len(target_orders) == 1: recent_price, before_price, recent_date = target_orders[0].ask.price, 0, target_orders[0].date
-            else: recent_price, before_price, recent_date = 0, 0, None
-
-            difference = int(recent_price - before_price)
-            percentage = 0 if difference == 0 else int((difference / recent_price) * 100)
-
-            lowAsk  = Ask.objects.filter(product_size_id = productsize.id).aggregate(Min('price'))['price__min']
-            highBid = Bid.objects.filter(product_size_id = productsize.id).aggregate(Max('price'))['price__max']
-
-            if highBid:
-                if not(week_52_high): week_52_high = int(highBid)
-                else: week_52_high = int(highBid) if week_52_high < highBid else week_52_high
-            if lowAsk:
-                if not(week_52_low): week_52_low = int(lowAsk)
-                else: week_52_low = int(lowAsk) if week_52_low > lowAsk else week_52_low
-
-            product_size_info_list.append({
-                'size'       : productsize.size.name,
-                'lowestAsk'  : '$' + str(int(lowAsk)) if lowAsk else '$0',
-                'highestBid' : '$' + str(int(highBid)) if highBid else '$0',
-                'lastSale'   : '$' + str(int(recent_price)),
-                'lastSize'   : None,
-                'difference' : '-$' + str(difference)[1 : ] if difference < 0 else '+$' + str(difference) if difference > 0 else str(difference),
-                'percentage' : str(percentage) + '%' if percentage < 0 else '+' + str(percentage) + '%' if percentage > 0 else str(percentage) + '%',
-                'lastDate'   : recent_date
-            })
-
-        temp_lastDate = 0
-        size_all = {'size' : 'All', 'lowestAsk' : '$100000', 'highestBid' : '$0', 'lastSale' : 0,
-                    'lastSize' : '', 'difference' : 0, 'percentage' : 0, 'lastDate' : None}
-
-        for item in product_size_info_list:
-            if not(item['highestBid'] == None) and int(size_all['highestBid'][1:]) < int(item['highestBid'][1:]):
-                size_all['highestBid'] = item['highestBid']
-            if not(item['lowestAsk'] == None) and int(size_all['lowestAsk'][1:]) > int(item['lowestAsk'][1:]):
-                size_all['lowestAsk'] = item['lowestAsk']
-
-            if item['lastDate'] == None:
-                continue
-            else:
-                if temp_lastDate == 0:
-                    temp_lastDate = item['lastDate']
-                if temp_lastDate <= item['lastDate']:
-                    temp_lastDate          = item['lastDate']
-                    size_all['size']       = 'All'
-                    size_all['lastSale']   = item['lastSale']
-                    size_all['lastSize']   = item['size']
-                    size_all['difference'] = item['difference']
-                    size_all['percentage'] = item['percentage']
-        product_size_info_list.insert(0, size_all)
-
-        detail_data_set['52week_high'] = '$' + str(week_52_high)
-        detail_data_set['52week_low'] = '$' + str(week_52_low)
-        detail_data_set['product_size_info_list'] = product_size_info_list
-
-        all_sale_list = []
-        target_asks   = Ask.objects.filter(product_size_id__in = product_size_list).prefetch_related('order_set').order_by('order__date')
-        for ask in target_asks:
-            full_date = str(ask.order_set.get().date).split(' ')
-            all_sale_list.append({
-                'size'       : ProductSize.objects.get(id = ask.product_size_id).size.name,
-                'sale_price' : int(ask.price),
-                'date'       : full_date[0],
-                'time'       : full_date[1]
-            })
-        detail_data_set['all_sale_list'] = all_sale_list
+#        product_size_info_list = []
+#        week_52_low, week_52_high = None, None
+#        product_size_list = [each.id for each in ProductSize.objects.filter(product = product_id)]
+#
+#        productsize_list = ProductSize.objects.filter(product = product_id)
+#        for productsize in productsize_list:
+#            target_orders = Order.objects.filter(ask__product_size_id = productsize.id).select_related('ask').order_by('date')
+#            if len(target_orders) > 1: recent_price, before_price, recent_date = target_orders[0].ask.price, target_orders[1].ask.price, target_orders[0].date
+#            elif len(target_orders) == 1: recent_price, before_price, recent_date = target_orders[0].ask.price, 0, target_orders[0].date
+#            else: recent_price, before_price, recent_date = 0, 0, None
+#
+#            difference = int(recent_price - before_price)
+#            percentage = 0 if difference == 0 else int((difference / recent_price) * 100)
+#
+#            lowAsk  = Ask.objects.filter(product_size_id = productsize.id).aggregate(Min('price'))['price__min']
+#            highBid = Bid.objects.filter(product_size_id = productsize.id).aggregate(Max('price'))['price__max']
+#
+#            if highBid:
+#                if not(week_52_high): week_52_high = int(highBid)
+#                else: week_52_high = int(highBid) if week_52_high < highBid else week_52_high
+#            if lowAsk:
+#                if not(week_52_low): week_52_low = int(lowAsk)
+#                else: week_52_low = int(lowAsk) if week_52_low > lowAsk else week_52_low
+#
+#            product_size_info_list.append({
+#                'size'       : productsize.size.name,
+#                'lowestAsk'  : '$' + str(int(lowAsk)) if lowAsk else '$0',
+#                'highestBid' : '$' + str(int(highBid)) if highBid else '$0',
+#                'lastSale'   : '$' + str(int(recent_price)),
+#                'lastSize'   : None,
+#                'difference' : '-$' + str(difference)[1 : ] if difference < 0 else '+$' + str(difference) if difference > 0 else str(difference),
+#                'percentage' : str(percentage) + '%' if percentage < 0 else '+' + str(percentage) + '%' if percentage > 0 else str(percentage) + '%',
+#                'lastDate'   : recent_date
+#            })
+#
+#        temp_lastDate = 0
+#        size_all = {'size' : 'All', 'lowestAsk' : '$100000', 'highestBid' : '$0', 'lastSale' : 0,
+#                    'lastSize' : '', 'difference' : 0, 'percentage' : 0, 'lastDate' : None}
+#
+#        for item in product_size_info_list:
+#            if not(item['highestBid'] == None) and int(size_all['highestBid'][1:]) < int(item['highestBid'][1:]):
+#                size_all['highestBid'] = item['highestBid']
+#            if not(item['lowestAsk'] == None) and int(size_all['lowestAsk'][1:]) > int(item['lowestAsk'][1:]):
+#                size_all['lowestAsk'] = item['lowestAsk']
+#
+#            if item['lastDate'] == None:
+#                continue
+#            else:
+#                if temp_lastDate == 0:
+#                    temp_lastDate = item['lastDate']
+#                if temp_lastDate <= item['lastDate']:
+#                    temp_lastDate          = item['lastDate']
+#                    size_all['size']       = 'All'
+#                    size_all['lastSale']   = item['lastSale']
+#                    size_all['lastSize']   = item['size']
+#                    size_all['difference'] = item['difference']
+#                    size_all['percentage'] = item['percentage']
+#        product_size_info_list.insert(0, size_all)
+#
+#        detail_data_set['52week_high'] = '$' + str(week_52_high)
+#        detail_data_set['52week_low'] = '$' + str(week_52_low)
+#        detail_data_set['product_size_info_list'] = product_size_info_list
 
         return JsonResponse({'message' : detail_data_set}, status = 200)
 
